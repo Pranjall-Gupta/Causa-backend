@@ -1,0 +1,16 @@
+com\causa\backend\repository\MetricRepository.class
+com\causa\backend\repository\SpanRepository.class
+com\causa\backend\repository\LogRepository.class
+com\causa\backend\service\IngestionService.class
+com\causa\backend\service\RcaService$Trajectory.class
+com\causa\backend\service\TopologyService$TopologyGraph.class
+com\causa\backend\model\DbSpan.class
+com\causa\backend\CausaBackendApplication.class
+com\causa\backend\service\AnomalyDetectionService$ServiceAlert.class
+com\causa\backend\controller\IngestionController.class
+com\causa\backend\service\RcaService.class
+com\causa\backend\controller\QueryController.class
+com\causa\backend\model\DbLog.class
+com\causa\backend\model\DbMetric.class
+com\causa\backend\service\TopologyService.class
+com\causa\backend\service\AnomalyDetectionService.class
