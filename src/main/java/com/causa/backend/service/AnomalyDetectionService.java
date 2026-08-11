@@ -5,6 +5,8 @@ import com.causa.backend.repository.SpanRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import org.springframework.scheduling.annotation.Scheduled;
+
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.*;
 
@@ -57,7 +59,8 @@ public class AnomalyDetectionService {
         public void setUpdatedAt(long updatedAt) { this.updatedAt = updatedAt; }
     }
 
-    public List<ServiceAlert> detectAnomalies() {
+    @Scheduled(fixedRate = 10000)
+    public void scanForAnomalies() {
         List<ServiceAlert> computedAlerts = new ArrayList<>();
         
         // Scan spans from the last 5 minutes
@@ -131,12 +134,14 @@ public class AnomalyDetectionService {
         }
 
         // Merge computed alerts into the cache
-        long nowSec = System.currentTimeMillis() / 1000;
         for (ServiceAlert alert : computedAlerts) {
             alertCache.put(alert.getId(), alert);
         }
+    }
 
+    public List<ServiceAlert> detectAnomalies() {
         // Evict expired alerts from cache (TTL: 30 minutes = 1800 seconds)
+        long nowSec = System.currentTimeMillis() / 1000;
         alertCache.entrySet().removeIf(entry -> (nowSec - entry.getValue().getUpdatedAt()) > 1800);
 
         return new ArrayList<>(alertCache.values());
