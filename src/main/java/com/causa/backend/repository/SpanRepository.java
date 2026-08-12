@@ -3,6 +3,7 @@ package com.causa.backend.repository;
 import com.causa.backend.model.DbSpan;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -19,4 +20,8 @@ public interface SpanRepository extends JpaRepository<DbSpan, Long> {
     // Get unique service names observed in spans
     @Query("SELECT DISTINCT s.serviceName FROM DbSpan s")
     List<String> findDistinctServiceNames();
+
+    // Get unique service names observed in spans since a given timestamp (Unix nanoseconds)
+    @Query("SELECT DISTINCT s.serviceName FROM DbSpan s WHERE s.startTimeUnixNano >= :sinceNano")
+    List<String> findDistinctServiceNamesSince(@Param("sinceNano") Long sinceNano);
 }
