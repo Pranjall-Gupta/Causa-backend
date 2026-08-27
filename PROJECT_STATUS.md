@@ -2,7 +2,7 @@
 
 > **Instructions**: This document serves as the single source of truth for the overall CAUSA project status across all three repositories. Update this file whenever a phase's status changes or milestone updates occur.
 >
-> **Last updated**: 2026-08-10
+> **Last updated**: 2026-08-20
 
 ---
 
@@ -47,7 +47,19 @@ The CAUSA system consists of three interconnected repositories:
 
 ---
 
-## Phase 4 - Plugin Feature (Status: Planned, Not Started)
+## Phase 4 - Plugin Feature (Status: In Progress)
 
-- **Status**: Planned (Not Yet Scoped or Started)
-- **Details**: The intended scope for Phase 4 includes developing an open-source instrumentation plugin/SDK (generalizing the OpenTelemetry tracing, metrics, and context propagation patterns established in `Causa-test-services`) that users can attach to their own custom projects. Additionally, an LLM-driven fix-suggestion service will be built on top of the existing `RcaService` output to provide automated remediation recommendations for identified root cause trajectories. This phase has not yet been scoped or started.
+### Phase 4, Step 1 - API Key Authentication (Status: Done)
+Implemented DbProject entity, ProjectRepository, ApiKeyAuthFilter (protecting /v1/traces, /v1/metrics, /v1/logs, /v1/fix-suggestion via the X-Causa-Api-Key header), and AdminController (POST /v1/admin/projects, gated by a separate master admin key) for issuing per-project API keys. Verified working end-to-end.
+
+### Phase 4, Step 2 - Java Instrumentation Plugin (Status: Done)
+Generalized the OTel instrumentation originally in Causa-test-services into a standalone, reusable Spring Boot auto-configuration library: [Causa-plugin-java](https://github.com/soham-kolhe/Causa-plugin-java). Consuming projects add it as a Maven dependency and configure causa.backend.url, causa.api-key, and causa.service-name. Causa-test-services was migrated to consume this plugin (replacing its own hardcoded OTel classes) and verified working end-to-end, including full chaos-scenario testing with real trace ingestion, topology graph generation, and alert detection.
+
+### Phase 4, Step 3 - Fix Suggestion Service (Status: Built, Not Yet Live-Tested)
+FixSuggestionController (POST /v1/fix-suggestion), FixSuggestionProvider interface, and AzureFoundryFixSuggestionProvider are implemented per the design in PHASE4_DESIGN.md. Not yet tested against a real Azure AI Foundry endpoint/key — currently blocked on obtaining and configuring real Azure credentials via environment variables (AZURE_AI_FOUNDRY_API_KEY, AZURE_AI_FOUNDRY_ENDPOINT).
+
+### Phase 4, Step 4 - Self-Service Project Onboarding (Status: Planned, Frontend Team)
+Not yet started. Scope, for the frontend team to pick up:
+- **4a: Self-service project creation page.** A UI page wrapping the existing POST /v1/admin/projects endpoint, so a user can create a project and get an API key through the website instead of a manual admin API call. Should display the generated key along with copy-paste Maven dependency and application.properties snippets, plus a live "waiting for data..." indicator that polls /v1/graph until the user's first trace arrives.
+- **4b: Publish the plugin for public consumption** (backend/infra work, not frontend) - publish causa-plugin-java to GitHub Packages so it can be added as a dependency from any machine, without requiring a local `mvn install` from a cloned copy of the source. This is a prerequisite for 4a to be useful to anyone outside the core team.
+- **4c: Config-snippet generator** (future, lower priority) - a tool where a user pastes their existing pom.xml and receives it back with the Causa plugin dependency merged in, removing the need to manually edit the file. Deliberately scoped smaller than a full "upload your whole project" auto-patching system, which was considered and set aside as too large/fragile for this stage (parsing arbitrary Maven/Gradle project structures) - and full hosted execution of user-uploaded code was ruled out entirely due to the security implications of running arbitrary third-party code.
