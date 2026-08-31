@@ -55,8 +55,8 @@ Implemented DbProject entity, ProjectRepository, ApiKeyAuthFilter (protecting /v
 ### Phase 4, Step 2 - Java Instrumentation Plugin (Status: Done)
 Generalized the OTel instrumentation originally in Causa-test-services into a standalone, reusable Spring Boot auto-configuration library: [Causa-plugin-java](https://github.com/soham-kolhe/Causa-plugin-java). Consuming projects add it as a Maven dependency and configure causa.backend.url, causa.api-key, and causa.service-name. Causa-test-services was migrated to consume this plugin (replacing its own hardcoded OTel classes) and verified working end-to-end, including full chaos-scenario testing with real trace ingestion, topology graph generation, and alert detection.
 
-### Phase 4, Step 3 - Fix Suggestion Service (Status: Built, Not Yet Live-Tested)
-FixSuggestionController (POST /v1/fix-suggestion), FixSuggestionProvider interface, and AzureFoundryFixSuggestionProvider are implemented per the design in PHASE4_DESIGN.md. Not yet tested against a real Azure AI Foundry endpoint/key — currently blocked on obtaining and configuring real Azure credentials via environment variables (AZURE_AI_FOUNDRY_API_KEY, AZURE_AI_FOUNDRY_ENDPOINT).
+### Phase 4, Step 3 - Fix Suggestion Service (Status: Done)
+FixSuggestionController (POST /v1/fix-suggestion), FixSuggestionProvider interface, and AzureFoundryFixSuggestionProvider are implemented per the design in PHASE4_DESIGN.md. Verified live against a real Azure AI Foundry `gpt-5-mini` deployment, returning a coherent, well-structured diagnosis and remediation plan for a real `checkout-api` high-error-rate alert.
 
 ### Phase 4, Step 4 - Self-Service Project Onboarding (Status: Planned, Frontend Team)
 Not yet started. Scope, for the frontend team to pick up:
