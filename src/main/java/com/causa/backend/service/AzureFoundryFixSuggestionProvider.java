@@ -162,8 +162,11 @@ public class AzureFoundryFixSuggestionProvider implements FixSuggestionProvider 
 
             Map<String, Object> requestBodyMap = new HashMap<>();
             requestBodyMap.put("messages", Collections.singletonList(userMessage));
+            requestBodyMap.put("max_completion_tokens", 2000);
 
             byte[] jsonPayload = objectMapper.writeValueAsBytes(requestBodyMap);
+
+            logger.info("Azure request - URL: {}, deployment: {}, apiVersion: {}", requestUrl, cleanDeployment, cleanApiVersion);
 
             HttpRequest httpRequest = HttpRequest.newBuilder()
                     .uri(URI.create(requestUrl))

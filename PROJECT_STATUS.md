@@ -2,7 +2,7 @@
 
 > **Instructions**: This document serves as the single source of truth for the overall CAUSA project status across all three repositories. Update this file whenever a phase's status changes or milestone updates occur.
 >
-> **Last updated**: 2026-08-20
+> **Last updated**: 2026-08-27
 
 ---
 
@@ -40,10 +40,10 @@ The CAUSA system consists of three interconnected repositories:
 
 ---
 
-## Phase 3 - Frontend/Backend Integration (Status: In Progress)
+## Phase 3 - Frontend/Backend Integration (Status: Done)
 
-- **Status**: In Progress (Active Work)
-- **Details**: Mock mode on the frontend is now toggleable via the `REACT_APP_USE_MOCK` environment variable in `.env` (when `true`, loads `src/mock.js` interceptors; when `false`, routes requests directly to the Spring Boot backend at `REACT_APP_BACKEND_HOST`). Active work is focused on end-to-end integration testing of live telemetry ingested from `Causa-test-services` flowing through `Causa-backend` to the React frontend UI.
+- **Status**: Completed
+- **Details**: Full end-to-end integration verified live in the browser. Real backend telemetry data (active incident alerts and dynamic topology graph) renders correctly in the React UI with `REACT_APP_USE_MOCK=false`. Confirmed that alerts and graph elements correctly disappear once telemetry ages out of the backend's time-windowing rules (30-minute alert TTL, 15-minute topology window) and seamlessly reappear once fresh traffic is generated.
 
 ---
 
