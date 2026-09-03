@@ -5,6 +5,8 @@ import com.causa.backend.model.DbSpan;
 import com.causa.backend.repository.MetricRepository;
 import com.causa.backend.repository.SpanRepository;
 import com.causa.backend.service.AnomalyDetectionService.ServiceAlert;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -12,6 +14,8 @@ import java.util.*;
 
 @Service
 public class TopologyService {
+
+    private static final Logger logger = LoggerFactory.getLogger(TopologyService.class);
 
     @Autowired
     private SpanRepository spanRepository;
@@ -21,6 +25,10 @@ public class TopologyService {
 
     @Autowired
     private AnomalyDetectionService anomalyDetectionService;
+
+    private volatile TopologyGraph cachedGraph;
+    private volatile long lastCacheTimeMs = 0;
+    private static final long CACHE_TTL_MS = 5000;
 
     public static class TopologyGraph {
         private List<Map<String, Object>> nodes = new ArrayList<>();
@@ -35,12 +43,26 @@ public class TopologyService {
         public void setLinks(List<Map<String, Object>> links) { this.links = links; }
     }
 
-    public TopologyGraph buildTopology() {
+    public synchronized TopologyGraph buildTopology() {
+        return buildTopology(false);
+    }
+
+    public synchronized TopologyGraph buildTopology(boolean forceRefresh) {
+        long now = System.currentTimeMillis();
+        if (!forceRefresh && cachedGraph != null && (now - lastCacheTimeMs) < CACHE_TTL_MS) {
+            return cachedGraph;
+        }
+
         TopologyGraph graph = new TopologyGraph();
         
-        // 1. Fetch distinct services from spans
-        List<String> services = spanRepository.findDistinctServiceNames();
+        long nowNano = System.currentTimeMillis() * 1000000;
+        long fifteenMinutesAgoNano = nowNano - (15L * 60 * 1000 * 1000000);
+
+        // 1. Fetch distinct services from spans in the last 15 minutes
+        List<String> services = spanRepository.findDistinctServiceNamesSince(fifteenMinutesAgoNano);
         if (services.isEmpty()) {
+            this.cachedGraph = graph;
+            this.lastCacheTimeMs = now;
             return graph;
         }
 
@@ -102,8 +124,8 @@ public class TopologyService {
         }
 
         // 3. Establish communication links by tracking traces call patterns
-        // We find all spans, map by traceId and spanId
-        List<DbSpan> allSpans = spanRepository.findAll();
+        // We find spans from the last 15 minutes, map by traceId and spanId
+        List<DbSpan> allSpans = spanRepository.findByStartTimeUnixNanoBetween(fifteenMinutesAgoNano, nowNano);
         Map<String, DbSpan> spansById = new HashMap<>();
         for (DbSpan span : allSpans) {
             spansById.put(span.getSpanId(), span);
@@ -150,6 +172,11 @@ public class TopologyService {
         }
 
         // 4. Ingest Alerts and link them to their respective pods
+        Set<String> existingNodeIds = new HashSet<>();
+        for (Map<String, Object> node : graph.getNodes()) {
+            existingNodeIds.add((String) node.get("id"));
+        }
+
         List<ServiceAlert> activeAlerts = anomalyDetectionService.detectAnomalies();
         for (ServiceAlert alert : activeAlerts) {
             // Add Alert Node
@@ -175,11 +202,17 @@ public class TopologyService {
                     String podName = props.get("name");
                     // Format: pod-checkout-api
                     String podId = "pod-" + podName.replace("-pod", "");
-                    graph.getLinks().add(createLink("link-alert-" + alert.getId(), alert.getId(), podId, 1.0));
+                    if (existingNodeIds.contains(podId)) {
+                        graph.getLinks().add(createLink("link-alert-" + alert.getId(), alert.getId(), podId, 1.0));
+                    } else {
+                        logger.warn("Skipping alert link for alert '{}': expected podId '{}' not present in topology graph nodes", alert.getId(), podId);
+                    }
                 }
             }
         }
 
+        this.cachedGraph = graph;
+        this.lastCacheTimeMs = now;
         return graph;
     }
 

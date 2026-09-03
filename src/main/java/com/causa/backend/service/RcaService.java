@@ -2,6 +2,8 @@ package com.causa.backend.service;
 
 import com.causa.backend.service.AnomalyDetectionService.ServiceAlert;
 import com.causa.backend.service.TopologyService.TopologyGraph;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -9,6 +11,8 @@ import java.util.*;
 
 @Service
 public class RcaService {
+
+    private static final Logger logger = LoggerFactory.getLogger(RcaService.class);
 
     @Autowired
     private TopologyService topologyService;
@@ -38,7 +42,7 @@ public class RcaService {
         List<Trajectory> trajectories = new ArrayList<>();
         
         // 1. Build latest topology to search paths
-        TopologyGraph topology = topologyService.buildTopology();
+        TopologyGraph topology = topologyService.buildTopology(true);
         List<ServiceAlert> activeAlerts = anomalyDetectionService.detectAnomalies();
         
         // Find the symptom alert details
@@ -171,7 +175,7 @@ public class RcaService {
                 Trajectory traj = new Trajectory();
                 
                 // Score formula:
-                // Base score: 0.8
+                // Base score: 0.75
                 // Distance penalty: 0.9^d where d is distance (path size - 1)
                 // Severity bonus: +0.15 for critical candidate alert, +0.0 for warning
                 int distance = path.size() - 1;
@@ -274,12 +278,14 @@ public class RcaService {
         }
         
         // Fallback: Create dynamic link if not found
+        logger.warn("No matching link found in topology between source '{}' and target '{}'. Fabricating fallback link.", source, target);
         Map<String, Object> link = new HashMap<>();
         link.put("id", "link-" + source + "-" + target);
         link.put("source", source);
         link.put("target", target);
         Map<String, Object> properties = new HashMap<>();
         properties.put("strength", 1.0);
+        properties.put("synthetic", true);
         link.put("properties", properties);
         return link;
     }

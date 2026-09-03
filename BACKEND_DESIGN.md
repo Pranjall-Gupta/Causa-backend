@@ -118,3 +118,33 @@ Once the server is running, populate the call graph and active alerts database u
 
 > [!CAUTION]
 > **In-Memory Storage Warning**: Since the H2 database runs in-memory (`jdbc:h2:mem:causadb`), any termination or restart of the Spring Boot Java process will completely clear all database tables. You must re-run the `.\send_mock_spans.ps1` script each time the server starts to re-populate the graph, metrics, and incidents.
+
+---
+
+## Phase 2.5 - Backend Optimization
+
+This section documents key architectural and performance enhancements implemented across the backend service layer, data layer, and controller interfaces:
+
+- **Batch Entity Ingestion (`IngestionService`)**:
+  - *Before*: Iterated over incoming span, metric, and log payloads calling `save()` per-item inside loops, causing severe N+1 database insert overhead.
+  - *Now*: Accumulates entities into `List` collections and invokes `saveAll()` once per ingestion payload. Annotated `ingestTraces`, `ingestMetrics`, and `ingestLogs` with `@Transactional` for atomic persistence per batch.
+
+- **Time-Bounded & Cached Topology Graph (`TopologyService`)**:
+  - *Before*: Invoked `spanRepository.findAll()` and traversed the entire historical database span set twice on every `/v1/graph` query.
+  - *Now*: Restricts trace scanning to a 15-minute rolling time window using `findByStartTimeUnixNanoBetween()`, and caches the compiled `TopologyGraph` in memory with a 5-second TTL (`CACHE_TTL_MS = 5000`) to avoid redundant rebuilds on rapid repeated queries.
+
+- **Background Scheduled Anomaly Detection (`AnomalyDetectionService`)**:
+  - *Before*: Scanned and aggregated recent spans synchronously on every `/v1/alerts` HTTP invocation.
+  - *Now*: Offloaded span scanning and threshold evaluation to a background scheduled task (`@Scheduled(fixedRate = 10000)`) running every 10 seconds to update `alertCache`. `/v1/alerts` queries now serve directly from memory alongside the existing 30-minute TTL eviction check.
+
+- **File-Based Persistent Storage (`application.properties`)**:
+  - *Before*: Utilized an in-memory database (`jdbc:h2:mem:causadb`), which purged all ingested telemetry whenever the backend JVM restarted.
+  - *Now*: Configured a persistent file-backed database (`jdbc:h2:file:./data/causadb;AUTO_SERVER=TRUE`), retaining state across restarts while ignoring `./data/` in `.gitignore`.
+
+- **Profile-Gated H2 Console Access (`application.properties` & `application-dev.properties`)**:
+  - *Before*: The H2 web console was enabled with `web-allow-others=true` globally in `application.properties`.
+  - *Now*: Base `application.properties` sets secure defaults (`enabled=false`, `web-allow-others=false`). Permissive access is isolated in `application-dev.properties`, with `spring.profiles.active=dev` set as default for local development.
+
+- **Ingestion Payload Validation & Secure Logging (`IngestionController`)**:
+  - *Before*: Caught generic `Exception` instances and returned `e.getMessage()` directly in HTTP response bodies, exposing internal details and obscuring validation errors.
+  - *Now*: Validates request body structure (`resourceSpans` presence and non-null metric/log lists) returning HTTP 400 with clear validation messages, while logging full server-side stack traces using SLF4J `Logger` without exposing internal exception strings to clients.

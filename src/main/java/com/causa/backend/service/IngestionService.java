@@ -8,7 +8,9 @@ import com.causa.backend.repository.MetricRepository;
 import com.causa.backend.repository.SpanRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -24,11 +26,14 @@ public class IngestionService {
     @Autowired
     private MetricRepository metricRepository;
 
+    @Transactional
     @SuppressWarnings("unchecked")
     public void ingestTraces(Map<String, Object> payload) {
         Object resourceSpansObj = payload.get("resourceSpans");
         if (!(resourceSpansObj instanceof List)) return;
         List<?> resourceSpans = (List<?>) resourceSpansObj;
+
+        List<DbSpan> spansToSave = new ArrayList<>();
 
         for (Object rsObj : resourceSpans) {
             if (!(rsObj instanceof Map)) continue;
@@ -112,13 +117,16 @@ public class IngestionService {
                     dbSpan.setStatusCode(statusCode);
                     dbSpan.setStatusMessage(statusMessage);
 
-                    spanRepository.save(dbSpan);
+                    spansToSave.add(dbSpan);
                 }
             }
         }
+        spanRepository.saveAll(spansToSave);
     }
 
+    @Transactional
     public void ingestMetrics(List<Map<String, Object>> metrics) {
+        List<DbMetric> metricsToSave = new ArrayList<>();
         for (Map<String, Object> m : metrics) {
             DbMetric dbMetric = new DbMetric();
             dbMetric.setServiceName((String) m.get("serviceName"));
@@ -128,11 +136,14 @@ public class IngestionService {
             long ts = m.get("timestampMs") != null ? parseLong(m.get("timestampMs")) : System.currentTimeMillis();
             dbMetric.setTimestampMs(ts);
             
-            metricRepository.save(dbMetric);
+            metricsToSave.add(dbMetric);
         }
+        metricRepository.saveAll(metricsToSave);
     }
 
+    @Transactional
     public void ingestLogs(List<Map<String, Object>> logs) {
+        List<DbLog> logsToSave = new ArrayList<>();
         for (Map<String, Object> l : logs) {
             DbLog dbLog = new DbLog();
             dbLog.setServiceName((String) l.get("serviceName"));
@@ -142,8 +153,9 @@ public class IngestionService {
             long ts = l.get("timestampMs") != null ? parseLong(l.get("timestampMs")) : System.currentTimeMillis();
             dbLog.setTimestampMs(ts);
             
-            logRepository.save(dbLog);
+            logsToSave.add(dbLog);
         }
+        logRepository.saveAll(logsToSave);
     }
 
     private long parseLong(Object obj) {
