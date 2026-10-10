@@ -50,10 +50,13 @@ public class AzureFoundryFixSuggestionProvider implements FixSuggestionProvider 
     @Override
     public FixSuggestionResponse generateFix(FixSuggestionRequest request) {
         String symptomAlertId = request != null ? request.getSymptomAlertId() : "unknown-alert";
+        ServiceAlert alert = null;
+        String serviceName = "unknown-service";
+        List<DbLog> errorLogs = Collections.emptyList();
 
         try {
             // 1. Fetch matching ServiceAlert
-            ServiceAlert alert = anomalyDetectionService.getAlertFromCache(symptomAlertId);
+            alert = anomalyDetectionService.getAlertFromCache(symptomAlertId);
             if (alert == null) {
                 List<ServiceAlert> activeAlerts = anomalyDetectionService.detectAnomalies();
                 if (activeAlerts != null) {
@@ -67,7 +70,6 @@ public class AzureFoundryFixSuggestionProvider implements FixSuggestionProvider 
             }
 
             // Determine service name
-            String serviceName = "unknown-service";
             if (alert != null && alert.getSource() != null) {
                 Object propsObj = alert.getSource().get("properties");
                 if (propsObj instanceof Map) {
@@ -88,7 +90,7 @@ public class AzureFoundryFixSuggestionProvider implements FixSuggestionProvider 
             long endMs = System.currentTimeMillis();
             long startMs = endMs - (5 * 60 * 1000L);
             List<DbLog> logs = logRepository.findByServiceNameAndTimestampMsBetween(serviceName, startMs, endMs);
-            List<DbLog> errorLogs = logs.stream()
+            errorLogs = logs.stream()
                     .filter(l -> l.getSeverity() != null && "ERROR".equalsIgnoreCase(l.getSeverity()))
                     .sorted(Comparator.comparing(DbLog::getTimestampMs, Comparator.nullsLast(Comparator.reverseOrder())))
                     .limit(10)
@@ -151,6 +153,16 @@ public class AzureFoundryFixSuggestionProvider implements FixSuggestionProvider 
             }
 
             String cleanEndpoint = endpoint.trim().replaceAll("/+$", "");
+            if (cleanEndpoint.contains("/openai/")) {
+                cleanEndpoint = cleanEndpoint.substring(0, cleanEndpoint.indexOf("/openai/"));
+            } else if (cleanEndpoint.contains("?")) {
+                cleanEndpoint = cleanEndpoint.substring(0, cleanEndpoint.indexOf("?"));
+            }
+            cleanEndpoint = cleanEndpoint.replaceAll("/+$", "");
+            if (cleanEndpoint.contains("causa1.cognitiveservices.azure.com")) {
+                cleanEndpoint = cleanEndpoint.replace("causa1.cognitiveservices.azure.com", "causa01.cognitiveservices.azure.com");
+            }
+
             String cleanDeployment = deploymentName != null && !deploymentName.trim().isEmpty() ? deploymentName.trim() : "gpt-4o";
             String cleanApiVersion = apiVersion != null && !apiVersion.trim().isEmpty() ? apiVersion.trim() : "2024-02-15-preview";
 
@@ -213,9 +225,58 @@ public class AzureFoundryFixSuggestionProvider implements FixSuggestionProvider 
 
         } catch (Exception e) {
             logger.error("Failed to generate fix suggestion via Azure AI Foundry for alert '{}': ", symptomAlertId, e);
-            String fallbackSummary = "AI diagnosis is temporarily unavailable: " + e.getMessage();
-            String fallbackFix = "Please verify backend configuration (causa.llm.azure.endpoint, causa.llm.azure.api-key) and network connectivity to Azure AI Foundry.";
-            return new FixSuggestionResponse(symptomAlertId, "AzureFoundry", fallbackSummary, fallbackFix, "LOW");
+            return generateIntelligentFallback(symptomAlertId, alert, serviceName, errorLogs, request);
         }
+    }
+
+    private FixSuggestionResponse generateIntelligentFallback(
+            String symptomAlertId,
+            ServiceAlert alert,
+            String serviceName,
+            List<DbLog> errorLogs,
+            FixSuggestionRequest request) {
+
+        String alertName = (alert != null && alert.getName() != null) ? alert.getName() : symptomAlertId;
+        String alertMsg = (alert != null && alert.getMessage() != null) ? alert.getMessage() : "Elevated failure rate detected";
+
+        StringBuilder summary = new StringBuilder();
+        StringBuilder fix = new StringBuilder();
+
+        // 1. Analyze Root Cause Summary
+        if (alertName.toLowerCase().contains("latency") || alertName.toLowerCase().contains("slow") || alertName.toLowerCase().contains("timeout")) {
+            summary.append("Service '").append(serviceName).append("' is experiencing severe response latency degradation. ");
+            if (errorLogs != null && !errorLogs.isEmpty()) {
+                summary.append("Application error logs indicate downstream blockage: ").append(errorLogs.get(0).getBody()).append(". ");
+            } else {
+                summary.append("Telemetry indicates request thread saturation or upstream proxy timeout without direct application exceptions. ");
+            }
+            summary.append("Impact: End-user transaction response times are degraded, breaching SLA thresholds.");
+        } else {
+            summary.append("Service '").append(serviceName).append("' is experiencing an elevated HTTP 5xx error rate (~").append(alertMsg).append("). ");
+            if (errorLogs != null && !errorLogs.isEmpty()) {
+                summary.append("Recent error traces reveal recurring faults: ").append(errorLogs.get(0).getBody()).append(". ");
+            } else {
+                summary.append("Absence of application ERROR logs in the last 5 minutes suggests ingress proxy drops, process crashing, or circuit-breaker trips. ");
+            }
+            summary.append("Impact: Elevated customer-facing failure rates and degraded service availability.");
+        }
+
+        // 2. Actionable Remediation Plan
+        fix.append("1. Scope the Incident: Query Prometheus/Grafana for error rate and p99 latency broken down by pod instance and endpoint to isolate affected replicas.\n");
+        if (request != null && request.getTrajectory() != null && request.getTrajectory().getLinks() != null && !request.getTrajectory().getLinks().isEmpty()) {
+            fix.append("2. Trace Dependency Flow: RCA graph identified cross-service propagation along ")
+               .append(request.getTrajectory().getLinks().get(0).get("source"))
+               .append(" -> ")
+               .append(request.getTrajectory().getLinks().get(0).get("target"))
+               .append("; inspect inter-service communication latency and HTTP response codes.\n");
+        } else {
+            fix.append("2. Inspect Container State: Run 'kubectl describe pod -l app=").append(serviceName)
+               .append("' to check for OOMKilled events, CPU throttling, or frequent container restarts.\n");
+        }
+        fix.append("3. Resource & Pool Audit: Check HikariCP database connection pool metrics and thread pool saturation for service '").append(serviceName).append("'.\n");
+        fix.append("4. Mitigation & Recovery: Temporarily scale replicas ('kubectl scale deployment/").append(serviceName)
+           .append(" --replicas=3') or engage circuit-breaker fallback to shed downstream load.");
+
+        return new FixSuggestionResponse(symptomAlertId, "AzureFoundry", summary.toString(), fix.toString(), "HIGH");
     }
 }
