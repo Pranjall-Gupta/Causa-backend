@@ -9,4 +9,5 @@ import java.util.Optional;
 @Repository
 public interface ProjectRepository extends JpaRepository<DbProject, Long> {
     Optional<DbProject> findByApiKeyAndActiveTrue(String apiKey);
+    Optional<DbProject> findFirstByActiveTrueOrderByIdDesc();
 }

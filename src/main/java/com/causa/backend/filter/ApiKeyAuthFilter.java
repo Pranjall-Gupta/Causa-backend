@@ -37,6 +37,12 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
             path = path.substring(request.getContextPath().length());
         }
 
+        // Allow preflight CORS OPTIONS requests to pass through unauthenticated
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         if (!PROTECTED_PATHS.contains(path)) {
             filterChain.doFilter(request, response);
             return;
@@ -44,6 +50,17 @@ public class ApiKeyAuthFilter extends OncePerRequestFilter {
 
         String apiKey = request.getHeader("X-Causa-Api-Key");
         if (apiKey == null || apiKey.trim().isEmpty()) {
+            // For fix-suggestion triggered from UI without an explicit API key header,
+            // fallback to the active project in the database if available.
+            if ("/v1/fix-suggestion".equals(path)) {
+                Optional<DbProject> defaultProject = projectRepository.findFirstByActiveTrueOrderByIdDesc();
+                if (defaultProject.isPresent()) {
+                    request.setAttribute("causaProjectId", defaultProject.get().getId());
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+            }
+
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType("application/json");
             response.getWriter().write("{\"error\": \"Missing X-Causa-Api-Key header\"}");
